@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { IUser } from 'src/users/users.interface';
-import { UsersService } from 'src/users/users.service';
+import { User } from 'src/users/user.model';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class AuthService {
@@ -10,33 +10,25 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async validateUser(username: string, pass: string): Promise<any> {
-    const user = await this.usersService.findOneByUsername(username);
-    if (user) {
-      const validPass = this.usersService.isValidPassword(pass, user.password);
-      if (validPass) {
-        return user;
-      }
-    }
-    return null;
+  async validateUserCredentials(
+    username: string,
+    password: string,
+  ): Promise<any> {
+    console.log(username, password);
+    const user = await this.usersService.getUser({ username, password });
+
+    return user ?? null;
   }
 
-  async login(user: IUser) {
-    const { _id, name, email, role } = user;
-    const payload = {
-      sub: 'token login',
-      iss: 'from server',
-      _id,
-      name,
-      email,
-      role,
-    };
+  async loginWithCredentials(user: User) {
+    const payload = { username: user.username };
+
     return {
+      username: user.username,
+      userId: user._id,
+      avatar: user.avatar,
       access_token: this.jwtService.sign(payload),
-      _id,
-      name,
-      email,
-      role,
+      expiredAt: Date.now() + 60000,
     };
   }
 }
