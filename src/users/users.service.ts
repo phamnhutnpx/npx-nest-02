@@ -1,67 +1,76 @@
-import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { AxiosError } from 'axios';
-import { Model } from 'mongoose';
-import { catchError, firstValueFrom } from 'rxjs';
-import { User } from './user.model';
-import * as FormData from 'form-data';
+import { compareSync, genSaltSync, hashSync } from 'bcryptjs';
+import { ValidationService } from 'src/utils/validateHelper';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { User, UserDocument } from './schemas/user.schema';
+import { SoftDeleteModel } from 'soft-delete-plugin-mongoose';
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectModel('User') private readonly userModel: Model<User>,
-    private readonly httpService: HttpService,
+    @InjectModel(User.name) private userModel: SoftDeleteModel<UserDocument>,
+    private readonly validationService: ValidationService,
   ) {}
 
-  async createUser(username: string, password: string): Promise<User> {
-    return this.userModel.create({
-      username,
-      password,
-    });
+  // Handle hash password
+  hashPassword(password: string) {
+    var salt = genSaltSync(10);
+    var hash = hashSync(password, salt);
+    return hash;
   }
-  async getUsers(): Promise<User[]> {
-    return this.userModel.find().exec();
+  // Create
+  async create(createUserDto: CreateUserDto) {
+    const hashPassword = this.hashPassword(createUserDto.password);
+    Object.assign(createUserDto, {
+      password: hashPassword,
+    });
+    const createdUser = await this.userModel.create(createUserDto);
+    return createdUser;
   }
 
-  async getUser({ username, password }): Promise<User | undefined> {
+  findAll() {
+    return this.userModel.find();
+  }
+  // Get user by id
+  findOne(id: string) {
+    const idErr = this.validationService.checkValidId(id);
+    if (idErr) return idErr;
+
     return this.userModel.findOne({
-      username,
-      password,
+      _id: id,
     });
   }
-
-  async getMe(userId): Promise<User | undefined> {
-    const user = await this.userModel.findById(userId);
-    if (!user) {
-      throw 'User not found';
-    }
-    return user;
+  // Get user by user name
+  findOneByUsername(username: string) {
+    return this.userModel.findOne({
+      email: username,
+    });
+  }
+  isValidPassword(passInput: string, passUser: string) {
+    return compareSync(passInput, passUser);
   }
 
-  async uploadAvatar(
-    avatar: Express.Multer.File,
-    userId: string,
-  ): Promise<any> {
-    const user = await this.userModel.findById(userId);
-    if (!user) {
-      throw 'User not found';
-    }
-    const formData = new FormData();
-    formData.append('image', avatar.buffer.toString('base64'));
-    const { data: imageData } = await firstValueFrom(
-      this.httpService
-        .post(
-          `https://api.imgbb.com/1/upload?expiration=600&key=${process.env.IMG_API_KEY}`,
-          formData,
-        )
-        .pipe(
-          catchError((error: AxiosError) => {
-            throw error;
-          }),
-        ),
+  // Update detail info
+  async update(updateUserDto: UpdateUserDto) {
+    const idErr = this.validationService.checkValidId(updateUserDto._id);
+    if (idErr) return idErr;
+
+    return await this.userModel.updateOne(
+      {
+        _id: updateUserDto._id,
+      },
+      { ...updateUserDto },
     );
-    user.updateOne({ avatar: imageData.data.url }).exec();
-    return imageData;
+  }
+
+  // Remove
+  async remove(id: string) {
+    const idErr = this.validationService.checkValidId(id);
+    if (idErr) return idErr;
+    return await this.userModel.softDelete({
+      _id: id,
+    });
   }
 }
